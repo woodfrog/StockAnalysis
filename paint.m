@@ -6,19 +6,16 @@ close all;
 format compact
 %%
 load('FQDATA.mat');
-parameter; % 导入参数
+para_paint; % 导入参数
 %%对参数中的起止日期以及股票代号进行检验
 if BEGIN_DATE>=END_DATE
     fprintf('开始日期必须小于结束日期！');
     return;
 end
+    
 
-SUM_NET = 0;
-SUM_RISK = 0;
     
-for codeIndex = 1 : length(STOCK_NUM)
-    
-    stockCount=find(StockCodeDouble==STOCK_NUM(codeIndex));
+    stockCount = find(StockCodeDouble==STOCK_NUM);
     if isempty(stockCount)
         fprintf('股票代码输入错误！');
         return;
@@ -115,12 +112,13 @@ for codeIndex = 1 : length(STOCK_NUM)
         
         %% 执行核心策略Strategy, shift表示返回的今天的开平仓情况
         if dayIndex >= LONG_TIME + OBSERVE_TIME
-            shiftVolume = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
+            shiftVolume = 0;
+%             shiftVolume = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
             
             if strcmp(state,'trend') == 1  %之前判断此时为趋势行情
                 shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG);
             elseif  strcmp(state,'oscillation') == 1   %振荡行情
-                shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG);
+                shiftPrice = strategy_oscil(shift, dayIndex, status, historyClose, MA_SHORT, MA_LONG);
             end
             
             if shiftPrice + shiftVolume >= 1
@@ -217,44 +215,33 @@ for codeIndex = 1 : length(STOCK_NUM)
         RISK(dayIndex) = max(NET)-NET(dayIndex); %这里用max函数欠妥，可以记录到当前为止的最高净值
         dayIndex = dayIndex + 1;
     end
-    FINAL_NET = NET(dayIndex-1);
-    SUM_NET = SUM_NET + FINAL_NET;
-    MAX_RISK = max(RISK);
-    SUM_RISK = SUM_RISK + MAX_RISK;
-    fprintf( 'No.%d: %06.0f  NET: %f RISK: %f \n',codeIndex, STOCK_NUM(codeIndex), FINAL_NET, MAX_RISK );
-    clear NET historyClose historyVol;
-end
 
-NET_AVR = SUM_NET / length(STOCK_NUM);
-RISK_AVR = SUM_RISK / length(STOCK_NUM);
-fprintf('平均NET： %f\n', NET_AVR);
-fprintf('平均RISK： %f\n', RISK_AVR);
 %% 画图
-%
-% scrsz = get(0,'ScreenSize');
+
+scrsz = get(0,'ScreenSize');
+figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
+subplot(3,1,1);
+plot(historyClose,'b','LineStyle','-','LineWidth',1.5);
+hold on; %保留之前的曲线
+plot(MA_SHORT,'r','LineStyle','--','LineWidth',1.5);
+plot(MA_LONG,'k','LineStyle','-.','LineWidth',1.5);
+grid on;
+legend('CLOSE-PRICE','MA-SHORT','MA-LONG','Location','Best');
+title('交易策略回测过程--以MA为核心','FontWeight', 'Bold');
+hold on;
+
+scrsz = get(0,'ScreenSize');
 % figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
-% subplot(3,1,1);
-% plot(historyClose,'b','LineStyle','-','LineWidth',1.5);
-% hold on; %保留之前的曲线
-% plot(MA_SHORT,'r','LineStyle','--','LineWidth',1.5);
-% plot(MA_LONG,'k','LineStyle','-.','LineWidth',1.5);
-% grid on;
-% legend('CLOSE-PRICE','MA-SHORT','MA-LONG','Location','Best');
-% title('交易策略回测过程--以MA为核心','FontWeight', 'Bold');
-% hold on;
-%
-% scrsz = get(0,'ScreenSize');
-% % figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
-% subplot(3,1,2);
-% plot(RISK);
-% grid on;
-% title('回撤率','FontWeight', 'Bold');
-%
-% scrsz = get(0,'ScreenSize');
-% % figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
-% subplot(3,1,3);
-% plot(NET);
-% grid on;
+subplot(3,1,2);
+plot(historyVol);
+grid on;
+title('成交量','FontWeight', 'Bold');
+
+scrsz = get(0,'ScreenSize');
+% figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);
+subplot(3,1,3);
+plot(NET);
+grid on;
 % title('净值变化情况','FontWeight', 'Bold');
 
 
