@@ -15,7 +15,8 @@ end
 
 SUM_NET = 0;
 SUM_RISK = 0;
-    
+SUM_PRICE = 0;
+
 for codeIndex = 1 : length(STOCK_NUM)
     
     stockCount=find(StockCodeDouble==STOCK_NUM(codeIndex));
@@ -42,19 +43,24 @@ for codeIndex = 1 : length(STOCK_NUM)
     RISK    =  zeros(endCount-beginCount+1,1);%记录回撤
     NET_OUT = zeros(endCount-beginCount+1,1);
     NET_IN  = zeros(endCount-beginCount+1,1);
-    status  =  '空仓';
-    shift   = 0; % 0表示空仓，1表示持仓
-    shiftPrice = 0;
-    shiftVolume = 0;
+    status  =  '空仓'; %初始状态为空仓
+    shift   = 0;       % 0表示空仓，1表示持仓
+    shiftPrice = 0;    %价格策略发出的信号
+    shiftVolume = 0;   %成交量策略发出的信号
     state   = '未知';
-    dayIndex = 1;
-    direction = '未知';
-    volIndex = 0;
+    dayIndex = 1;       %天数的序号
+    direction = '未知'; %趋势的方向，可以为up 或 down
+    volIndex = 0;      %成交量策略中趋势的序号
     
+    %以下是振荡策略的止盈部分的变量
+    waitFlag = 0;
+    waitProfitRate = 0;
+    breakFlag = 0;
+    incrementValue = 0;
+    MINIMUM_IN_RECENT = 0;
+    %
     
-    % historyClose = zeros(endCount-beginCount+1,1);
-    % historyFlagtrade = zeros(endCount-beginCount+1,1);
-    Compare_short_long = zeros(endCount-beginCount+1,1);
+    Compare_short_long = zeros(endCount-beginCount+1,1);%记录两条MA的高低
     STATE_RECORD = zeros(endCount-beginCount+1,1); %记录每天是处在趋势行情中还是振荡行情中
     VOL_AVR = zeros(endCount-beginCount+1,1); %记录每个趋势中的平均交易量
     VOL_START_DAY = zeros(endCount-beginCount+1,1);
@@ -96,6 +102,12 @@ for codeIndex = 1 : length(STOCK_NUM)
                 state = 'trend';
                 direction = 'up';
                 STATE_RECORD(dayIndex) = 1;
+                %重置振荡止盈中的变量
+                waitFlag = 0;
+                waitProfitRate = 0;
+                breakFlag = 0;
+                incrementValue = 0;
+                MINIMUM_IN_RECENT = 0;
             elseif  length( find ( Compare_short_long(dayIndex - OBSERVE_TIME + 1 : dayIndex) ==0 ) ) >= TREND_JUDGE  %进入下降趋势
                 if ~strcmp(state, 'trend') || ~strcmp(direction, 'down') %这一天恰好进入下降趋势
                     volIndex = volIndex + 1;
@@ -107,6 +119,12 @@ for codeIndex = 1 : length(STOCK_NUM)
                 state = 'trend';
                 direction = 'down';
                 STATE_RECORD(dayIndex) = 1;
+                %重置振荡止盈中的变量
+                waitFlag = 0;
+                waitProfitRate = 0;
+                breakFlag = 0;
+                incrementValue = 0;
+                MINIMUM_IN_RECENT = 0;
             else  %振荡趋势，在振荡趋势中暂时不处理成交量
                 state = 'oscillation';
                 STATE_RECORD(dayIndex) = 0;
@@ -127,19 +145,21 @@ for codeIndex = 1 : length(STOCK_NUM)
                 shift = 1;
             elseif shiftPrice + shiftVolume <= -1
                 shift = -1;
-            else
+            else %如果成交量发出的信号与价格发出的信号相反，则不做动作
                 shift = 0;
             end
+            
             % 止损
-            %         if dayIndex <= 30
-            %             maxNet = max(NET);
-            %         else
-            %             maxNet = max(NET(dayIndex - 29:dayIndex-1) );
-            %         end
-            %         if NET(dayIndex-1) <= 0.95 * maxNet
-            %             shift = -1;
-            %         end
+            if dayIndex <= STOP_LOSS_DAY
+                maxNet = max(NET);
+            else
+                maxNet = max(NET(dayIndex - STOP_LOSS_DAY + 1 :dayIndex-1) );
+            end
+            if NET(dayIndex-1) <= STOP_LOSS_PROP * maxNet
+                shift = -1;
+            end
             %以上为止损
+            
         end
         
         %% 每天的后续计算
@@ -221,14 +241,19 @@ for codeIndex = 1 : length(STOCK_NUM)
     SUM_NET = SUM_NET + FINAL_NET;
     MAX_RISK = max(RISK);
     SUM_RISK = SUM_RISK + MAX_RISK;
-    fprintf( 'No.%d: %06.0f  NET: %f RISK: %f \n',codeIndex, STOCK_NUM(codeIndex), FINAL_NET, MAX_RISK );
+    PRICE_RATIO = historyClose(dayIndex-1)/historyClose(1);
+    SUM_PRICE = SUM_PRICE + PRICE_RATIO;
+    fprintf( 'No.%d: %06.0f  NET: %f RISK: %f  PRICE: %f \n',codeIndex, STOCK_NUM(codeIndex), FINAL_NET, MAX_RISK, ...
+        PRICE_RATIO );
     clear NET historyClose historyVol;
 end
 
 NET_AVR = SUM_NET / length(STOCK_NUM);
 RISK_AVR = SUM_RISK / length(STOCK_NUM);
+PRICE_AVR = SUM_PRICE / length(STOCK_NUM);
 fprintf('平均NET： %f\n', NET_AVR);
 fprintf('平均RISK： %f\n', RISK_AVR);
+fprintf('平均PRICE： %f\n', PRICE_AVR);
 %% 画图
 %
 % scrsz = get(0,'ScreenSize');
