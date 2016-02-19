@@ -61,6 +61,7 @@ for codeIndex = 1 : length(STOCK_NUM)
     %
     
     Compare_short_long = zeros(endCount-beginCount+1,1);%记录两条MA的高低
+    E_value = zeros(endCount-beginCount+1,1); %记录每天的E值，用于判断该天处于振荡还是趋势中
     STATE_RECORD = zeros(endCount-beginCount+1,1); %记录每天是处在趋势行情中还是振荡行情中
     VOL_AVR = zeros(endCount-beginCount+1,1); %记录每个趋势中的平均交易量
     VOL_START_DAY = zeros(endCount-beginCount+1,1);
@@ -90,8 +91,17 @@ for codeIndex = 1 : length(STOCK_NUM)
             end
         end
         
+        if dayIndex >= PREMISE_DAY     %计算每天的E值，用于大前提的判断
+            numerator = historyClose(dayIndex) - historyClose(dayIndex - PREMISE_DAY + 1);
+            denominator = 0;
+            for index = 1 : PREMISE_DAY-1
+                denominator = denominator + abs( historyClose(dayIndex - index + 1) - historyClose(dayIndex - index)  );
+            end
+            E_value(dayIndex) = numerator / denominator;
+        end
+        
         if dayIndex >= LONG_TIME + OBSERVE_TIME
-            if length( find ( Compare_short_long(dayIndex - OBSERVE_TIME + 1 : dayIndex) == 1 ) ) >= TREND_JUDGE % 进入上升趋势
+            if E_value(dayIndex) > PREMISE_BOUND % 进入上升趋势
                 if  ~strcmp(state, 'trend') || ~strcmp(direction, 'up') %这一天恰好进入上升趋势
                     volIndex = volIndex + 1;
                     VOL_START_DAY(volIndex) = dayIndex - TREND_JUDGE + 1;
@@ -108,7 +118,7 @@ for codeIndex = 1 : length(STOCK_NUM)
                 breakFlag = 0;
                 incrementValue = 0;
                 MINIMUM_IN_RECENT = 0;
-            elseif  length( find ( Compare_short_long(dayIndex - OBSERVE_TIME + 1 : dayIndex) ==0 ) ) >= TREND_JUDGE  %进入下降趋势
+            elseif  E_value(dayIndex) <  -PREMISE_BOUND   %进入下降趋势
                 if ~strcmp(state, 'trend') || ~strcmp(direction, 'down') %这一天恰好进入下降趋势
                     volIndex = volIndex + 1;
                     VOL_START_DAY(volIndex) = dayIndex - TREND_JUDGE + 1;
@@ -136,9 +146,12 @@ for codeIndex = 1 : length(STOCK_NUM)
             shiftVolume = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
             
             if strcmp(state,'trend') == 1  %之前判断此时为趋势行情
-                shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG);
+                shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction,...
+                    Compare_short_long, MA_SHORT, MA_LONG);
             elseif  strcmp(state,'oscillation') == 1   %振荡行情
-                shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG);
+                [shiftPrice, waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
+                    = strategy_oscil(shift, dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
+                    waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT );
             end
             
             if shiftPrice + shiftVolume >= 1
