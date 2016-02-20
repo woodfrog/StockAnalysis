@@ -28,7 +28,7 @@ if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME + OBSERVE_TIME
                 end
             case '开仓'
                 if MA_SHORT(dayIndex) > MA_LONG(dayIndex) && MA_SHORT(dayIndex-1) <= MA_LONG(dayIndex-1)  %近期价格上涨
-                    MINIMUM_IN_RECENT = min(historyClose( dayIndex - RECENT_DAY + 1 : dayIndex));
+                    MINIMUM_IN_RECENT = minimum_in_recent(historyClose, dayIndex, RECENT_DAY); % 20天内，最近一次的极小值
                     waitProfitRate = (historyClose(dayIndex)-MINIMUM_IN_RECENT)/MINIMUM_IN_RECENT;
                     incrementValue = 0.1 * waitProfitRate; %每一格止盈线的增量
                     waitProfitRate = waitProfitRate + incrementValue;

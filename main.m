@@ -256,8 +256,8 @@ for codeIndex = 1 : length(STOCK_NUM)
     SUM_RISK = SUM_RISK + MAX_RISK;
     PRICE_RATIO = historyClose(dayIndex-1)/historyClose(1);
     SUM_PRICE = SUM_PRICE + PRICE_RATIO;
-    fprintf( 'No.%d: %06.0f  NET: %f RISK: %f  PRICE: %f \n',codeIndex, STOCK_NUM(codeIndex), FINAL_NET, MAX_RISK, ...
-        PRICE_RATIO );
+    fprintf( 'No.%d: %06.0f  NET: %f RISK: %f  PRICE: %f  DAYS: %.0f\n',codeIndex, STOCK_NUM(codeIndex), FINAL_NET, MAX_RISK, ...
+        PRICE_RATIO, dayIndex-1 );
     clear NET historyClose historyVol;
 end
 
