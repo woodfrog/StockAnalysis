@@ -16,14 +16,17 @@ end
 SUM_NET = 0;
 SUM_RISK = 0;
 SUM_PRICE = 0;
+NO_INFORMATION = 0;
 
 for codeIndex = 1 : length(STOCK_NUM)
     
     stockCount=find(StockCodeDouble==STOCK_NUM(codeIndex));
-    if isempty(stockCount)
-        fprintf('股票代码输入错误！');
-        return;
+    if length(stockCount) == 0
+        fprintf('No Data for stock: %06.0f\n', STOCK_NUM(codeIndex));
+        NO_INFORMATION = NO_INFORMATION + 1;
+        continue; %直接跳过余下操作
     end
+
     
     beginCount = find(Date>=BEGIN_DATE,1,'first');  %大于起始日期的第一个交易日
     if isempty(beginCount) || BEGIN_DATE<20110104
@@ -40,7 +43,6 @@ for codeIndex = 1 : length(STOCK_NUM)
     FLAGBUY =  zeros(endCount-beginCount+1,1);%记录开平仓情况
     %PCYK    =  zeros(endCount-beginCount+1,1);%记录平仓盈亏
     HOLD    =  zeros(endCount-beginCount+1,1);%记录持仓情况
-    RISK    =  zeros(endCount-beginCount+1,1);%记录回撤
     NET_OUT = zeros(endCount-beginCount+1,1);
     NET_IN  = zeros(endCount-beginCount+1,1);
     status  =  '空仓'; %初始状态为空仓
@@ -199,7 +201,6 @@ for codeIndex = 1 : length(STOCK_NUM)
             NET_OUT(1) = 1;
             NET_IN(1) = 0;
             HOLD(1)=0;
-            RISK(1)=0;
             %第一天开仓时的处理
             if FLAGBUY(dayIndex) == 1
                 NET_IN(1)  = IN_PERCENT * NET(1) *(1-BUY_COST); %一半的净值参与交易(这里手续费在哪里扣，到时候再看看要不要改)
@@ -207,7 +208,6 @@ for codeIndex = 1 : length(STOCK_NUM)
                 %PCYK(1) = 1 - BUY_COST;
                 NET(1)  = NET_OUT(1) + NET_IN(1);
                 HOLD(1) = NET_IN(1) / historyClose(1); %每次只用净值的50%去进行交易
-                RISK(1) =BUY_COST;
             end
             dayIndex = dayIndex + 1;
             continue;
@@ -231,7 +231,6 @@ for codeIndex = 1 : length(STOCK_NUM)
             NET_OUT(dayIndex) = (1-IN_PERCENT) * NET(dayIndex);
             NET(dayIndex) = NET_IN(dayIndex) + NET_OUT(dayIndex);
             HOLD(dayIndex) = NET_IN(dayIndex) / historyClose(dayIndex);
-            RISK(dayIndex) = max(NET)-NET(dayIndex); %这里用max函数欠妥，可以记录到当前为止的最高净值
             dayIndex = dayIndex + 1;
             continue;
         end
@@ -247,12 +246,15 @@ for codeIndex = 1 : length(STOCK_NUM)
                 HOLD(dayIndex)=0;
             end
         end
-        RISK(dayIndex) = max(NET)-NET(dayIndex); %这里用max函数欠妥，可以记录到当前为止的最高净值
         dayIndex = dayIndex + 1;
+    end
+    if dayIndex == 1 %若设定的期间内相应股票还未上市，是无法回测的，此处处理这一情况
+        fprintf('Stock%06.0f did not go public during the time in configuration ', STOCK_NUM(codeIndex));
+        continue;
     end
     FINAL_NET = NET(dayIndex-1);
     SUM_NET = SUM_NET + FINAL_NET;
-    MAX_RISK = max(RISK);
+    MAX_RISK = max_risk(NET);
     SUM_RISK = SUM_RISK + MAX_RISK;
     PRICE_RATIO = historyClose(dayIndex-1)/historyClose(1);
     SUM_PRICE = SUM_PRICE + PRICE_RATIO;
@@ -261,9 +263,9 @@ for codeIndex = 1 : length(STOCK_NUM)
     clear NET historyClose historyVol;
 end
 
-NET_AVR = SUM_NET / length(STOCK_NUM);
-RISK_AVR = SUM_RISK / length(STOCK_NUM);
-PRICE_AVR = SUM_PRICE / length(STOCK_NUM);
+NET_AVR = SUM_NET / (length(STOCK_NUM) - NO_INFORMATION);
+RISK_AVR = SUM_RISK / (length(STOCK_NUM) - NO_INFORMATION);
+PRICE_AVR = SUM_PRICE / (length(STOCK_NUM) - NO_INFORMATION);
 fprintf('平均NET： %f\n', NET_AVR);
 fprintf('平均RISK： %f\n', RISK_AVR);
 fprintf('平均PRICE： %f\n', PRICE_AVR);

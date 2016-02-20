@@ -20,7 +20,7 @@ if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME + OBSERVE_TIME
         switch status
             case '空仓'
                 if MA_SHORT(dayIndex) < MA_LONG(dayIndex) && MA_SHORT(dayIndex-1) >= MA_LONG(dayIndex-1)...
-                        && length( find ( STATE_RECORD(dayIndex - 7 + 1 : dayIndex) == 0 ) ) >= 2 
+                        && length( find ( STATE_RECORD(dayIndex - PREMISE_DAY + 1 : dayIndex) == 0 ) ) >= PREMISE_DAY/2 
                     %短期线从上往下突破长期线，说明近期价格下降
                     shift = 1;  %认为大盘振荡，此时买入
                 else
