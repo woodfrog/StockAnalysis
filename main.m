@@ -45,6 +45,8 @@ for codeIndex = 1 : length(STOCK_NUM)
     HOLD    =  zeros(endCount-beginCount+1,1);%记录持仓情况
     NET_OUT = zeros(endCount-beginCount+1,1);
     NET_IN  = zeros(endCount-beginCount+1,1);
+    SHIFT_PRICE = zeros(endCount-beginCount+1,1);
+    SHIFT_VOL  = zeros(endCount-beginCount+1,1);
     status  =  '空仓'; %初始状态为空仓
     shift   = 0;       % 0表示空仓，1表示持仓
     shiftPrice = 0;    %价格策略发出的信号
@@ -53,6 +55,7 @@ for codeIndex = 1 : length(STOCK_NUM)
     dayIndex = 1;       %天数的序号
     direction = '未知'; %趋势的方向，可以为up 或 down
     volIndex = 0;      %成交量策略中趋势的序号
+    state_vol = 0;
     
     %以下是振荡策略的止盈部分的变量
     waitFlag = 0;
@@ -60,7 +63,6 @@ for codeIndex = 1 : length(STOCK_NUM)
     breakFlag = 0;
     incrementValue = 0;
     MINIMUM_IN_RECENT = 0;
-    %
     
     Compare_short_long = zeros(endCount-beginCount+1,1);%记录两条MA的高低
     E_value = zeros(endCount-beginCount+1,1); %记录每天的E值，用于判断该天处于振荡还是趋势中
@@ -85,6 +87,7 @@ for codeIndex = 1 : length(STOCK_NUM)
         end
         
         %% 对行情总体情况的判断，趋势or振荡
+           % 并为策略的执行准备数据
         if dayIndex >= LONG_TIME
             if MA_SHORT(dayIndex) > MA_LONG(dayIndex) %记录短均线与长均线的高低情况
                 Compare_short_long(dayIndex) = 1;
@@ -102,15 +105,41 @@ for codeIndex = 1 : length(STOCK_NUM)
             E_value(dayIndex) = numerator / denominator;
         end
         
-        if dayIndex >= LONG_TIME + OBSERVE_TIME
+        if dayIndex >= LONG_TIME
+            
+          if state_vol == 0 %处理第一次  
+            if historyClose(dayIndex) > historyClose(dayIndex-1)
+                volIndex = volIndex + 1;
+                state_vol = 1;
+                VOL_START_DAY(volIndex) = dayIndex;
+                VOL_AVR(volIndex) = historyVol(dayIndex);
+            else
+                volIndex = volIndex + 1;
+                state_vol = -1;
+                VOL_START_DAY(volIndex) = dayIndex;
+                VOL_AVR(volIndex) = historyVol(dayIndex);
+            end
+          elseif state_vol == 1 %之前处在价格上升阶段
+              if historyClose(dayIndex) > historyClose(dayIndex-1) %仍处在价格上升阶段中
+                  VOL_AVR(volIndex) = AVR(dayIndex - VOL_START_DAY(volIndex)+1, historyVol);
+              else
+                  volIndex = volIndex + 1;
+                  state_vol = -1;
+                  VOL_START_DAY(volIndex) = dayIndex;
+                  VOL_AVR(volIndex) = historyVol(dayIndex);
+              end  
+          else %之前处在价格下降的阶段
+              if historyClose(dayIndex) > historyClose(dayIndex-1) %仍处在价格上升阶段中
+                  volIndex = volIndex + 1;
+                  state_vol = 1;
+                  VOL_START_DAY(volIndex) = dayIndex;
+                  VOL_AVR(volIndex) = historyVol(dayIndex);                  
+              else
+                  VOL_AVR(volIndex) = AVR(dayIndex - VOL_START_DAY(volIndex)+1, historyVol);
+              end
+          end
+            
             if E_value(dayIndex) > PREMISE_BOUND % 进入上升趋势
-                if  ~strcmp(state, 'trend') || ~strcmp(direction, 'up') %这一天恰好进入上升趋势
-                    volIndex = volIndex + 1;
-                    VOL_START_DAY(volIndex) = dayIndex - TREND_JUDGE + 1;
-                    VOL_AVR(volIndex) = MA( TREND_JUDGE, historyVol);
-                else %之前一天也是上升趋势
-                    VOL_AVR(volIndex) = MA( dayIndex-VOL_START_DAY(volIndex)+1, historyVol);
-                end
                 state = 'trend';
                 direction = 'up';
                 STATE_RECORD(dayIndex) = 1;
@@ -121,13 +150,6 @@ for codeIndex = 1 : length(STOCK_NUM)
                 incrementValue = 0;
                 MINIMUM_IN_RECENT = 0;
             elseif  E_value(dayIndex) <  -PREMISE_BOUND   %进入下降趋势
-                if ~strcmp(state, 'trend') || ~strcmp(direction, 'down') %这一天恰好进入下降趋势
-                    volIndex = volIndex + 1;
-                    VOL_START_DAY(volIndex) = dayIndex - TREND_JUDGE + 1;
-                    VOL_AVR(volIndex) = MA( TREND_JUDGE, historyVol);
-                else %前一天本就是下降趋势
-                    VOL_AVR(volIndex) = MA( dayIndex-VOL_START_DAY(volIndex)+1, historyVol);
-                end
                 state = 'trend';
                 direction = 'down';
                 STATE_RECORD(dayIndex) = 1;
@@ -137,28 +159,28 @@ for codeIndex = 1 : length(STOCK_NUM)
                 breakFlag = 0;
                 incrementValue = 0;
                 MINIMUM_IN_RECENT = 0;
-            else  %振荡趋势，在振荡趋势中暂时不处理成交量
+            else  %振荡趋势
                 state = 'oscillation';
                 STATE_RECORD(dayIndex) = 0;
             end
         end
         
         %% 执行核心策略Strategy, shift表示返回的今天的开平仓情况
-        if dayIndex >= LONG_TIME + OBSERVE_TIME
-            shiftVolume = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
+        if dayIndex >= LONG_TIME + PREMISE_DAY
+            SHIFT_VOL(dayIndex) = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
             
             if strcmp(state,'trend') == 1  %之前判断此时为趋势行情
-                shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction,...
+                SHIFT_PRICE(dayIndex) = strategy_trend(dayIndex, status, historyClose, direction,...
                     Compare_short_long, MA_SHORT, MA_LONG);
             elseif  strcmp(state,'oscillation') == 1   %振荡行情
-                [shiftPrice, waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
-                    = strategy_oscil(shift, dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
+                [SHIFT_PRICE(dayIndex), waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
+                    = strategy_oscil(dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
                     waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT );
             end
             
-            if shiftPrice + shiftVolume >= 1
+            if SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex)  >= 1
                 shift = 1;
-            elseif shiftPrice + shiftVolume <= -1
+            elseif SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex) <= -1
                 shift = -1;
             else %如果成交量发出的信号与价格发出的信号相反，则不做动作
                 shift = 0;
@@ -180,7 +202,7 @@ for codeIndex = 1 : length(STOCK_NUM)
         %% 每天的后续计算
         %将今日开平仓情况存储于Flagbuy，以便结果的计算
         % Flagbuy最终存的将是每天的开仓情况，1代表开仓
-        if dayIndex == 1
+        if dayIndex == 1  %第一天不交易
             FLAGBUY(dayIndex) = 0;
         else
             if shift == 0  %持仓情况与前一天相同，status不做改变，
@@ -205,7 +227,6 @@ for codeIndex = 1 : length(STOCK_NUM)
             if FLAGBUY(dayIndex) == 1
                 NET_IN(1)  = IN_PERCENT * NET(1) *(1-BUY_COST); %一半的净值参与交易(这里手续费在哪里扣，到时候再看看要不要改)
                 NET_OUT(1) = (1-IN_PERCENT) * NET(1);
-                %PCYK(1) = 1 - BUY_COST;
                 NET(1)  = NET_OUT(1) + NET_IN(1);
                 HOLD(1) = NET_IN(1) / historyClose(1); %每次只用净值的50%去进行交易
             end
@@ -220,13 +241,11 @@ for codeIndex = 1 : length(STOCK_NUM)
         NET(dayIndex) = NET_OUT(dayIndex) + NET_IN(dayIndex);
         %这里要确保第一天是有价格的, 净值等于没参与交易的NET_OUT（再一次买入后是暂时固定的）与参与交易的NET_IN（持仓时会不断变化）之和
         
-        %PCYK(dayIndex) = PCYK(dayIndex-1);
         HOLD(dayIndex) = HOLD(dayIndex-1);
         
         
         %若当天发出开仓信号
         if FLAGBUY(dayIndex) == 1 && FLAGBUY(dayIndex-1) == 0
-            %PCYK(dayIndex) = PCYK(dayIndex) * (1-BUY_COST);
             NET_IN(dayIndex) = IN_PERCENT * NET(dayIndex) * (1-BUY_COST);
             NET_OUT(dayIndex) = (1-IN_PERCENT) * NET(dayIndex);
             NET(dayIndex) = NET_IN(dayIndex) + NET_OUT(dayIndex);

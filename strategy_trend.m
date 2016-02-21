@@ -1,4 +1,4 @@
-function shift = strategy_trend(shift,dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG)
+function shift = strategy_trend(dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG)
 
 % 若发出买入信号，则shift = 1，
 % 若发出卖出信号，则shift = -1,
@@ -8,6 +8,7 @@ parameter; %输入参数
 
 if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME+OBSERVE_TIME
     if MA_SHORT(dayIndex) == 0 || MA_SHORT(dayIndex-1) == 0 || MA_LONG(dayIndex) == 0 ||MA_LONG(dayIndex-1) == 0
+        shift = 0;
         return;
     end
     

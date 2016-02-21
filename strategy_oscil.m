@@ -1,5 +1,5 @@
 function [shift, waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
-        = strategy_oscil(shift, dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
+        = strategy_oscil(dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
         waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT )
 
 % 若发出买入信号，则shift = 1，
@@ -13,6 +13,7 @@ parameter;
 if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME + OBSERVE_TIME 
     
     if MA_SHORT(dayIndex) == 0 || MA_SHORT(dayIndex-1) == 0 || MA_LONG(dayIndex) == 0 ||MA_LONG(dayIndex-1) == 0
+        shift = 0;
         return;
     end
     
@@ -46,7 +47,7 @@ if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME + OBSERVE_TIME
                 breakFlag = 1;
                 shift = 0; 
             elseif MA_SHORT(dayIndex) < MA_LONG(dayIndex) && MA_SHORT(dayIndex-1) >= MA_LONG(dayIndex-1)
-                shift = -1; %发出卖出信号
+                shift = -1; %发出卖出信号,并还原止盈用的信息
                 waitFlag = 0;
                 waitProfitRate = 0;
                 breakFlag = 0;
@@ -62,7 +63,7 @@ if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME + OBSERVE_TIME
                 breakFlag = 1;
                 shift = 0;
             elseif temp <= waitProfitRate - incrementValue   %回落到之前一根止盈线的位置
-                shift = -1; %发出卖出信号
+                shift = -1; %发出卖出信号,并还原止盈用的信息
                 waitFlag = 0;
                 waitProfitRate = 0;
                 breakFlag = 0;

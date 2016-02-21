@@ -73,6 +73,7 @@ end
         end
         
         %% 对行情总体情况的判断，趋势or振荡
+           % 并为策略的执行准备数据
         if dayIndex >= LONG_TIME
             if MA_SHORT(dayIndex) > MA_LONG(dayIndex) %记录短均线与长均线的高低情况
                 Compare_short_long(dayIndex) = 1;
@@ -81,8 +82,17 @@ end
             end
         end
         
+        if dayIndex >= PREMISE_DAY     %计算每天的E值，用于大前提的判断
+            numerator = historyClose(dayIndex) - historyClose(dayIndex - PREMISE_DAY + 1);
+            denominator = 0;
+            for index = 1 : PREMISE_DAY-1
+                denominator = denominator + abs( historyClose(dayIndex - index + 1) - historyClose(dayIndex - index)  );
+            end
+            E_value(dayIndex) = numerator / denominator;
+        end
+        
         if dayIndex >= LONG_TIME + OBSERVE_TIME
-            if length( find ( Compare_short_long(dayIndex - OBSERVE_TIME + 1 : dayIndex) == 1 ) ) >= TREND_JUDGE % 进入上升趋势
+            if E_value(dayIndex) > PREMISE_BOUND % 进入上升趋势
                 if  ~strcmp(state, 'trend') || ~strcmp(direction, 'up') %这一天恰好进入上升趋势
                     volIndex = volIndex + 1;
                     VOL_START_DAY(volIndex) = dayIndex - TREND_JUDGE + 1;
@@ -93,7 +103,13 @@ end
                 state = 'trend';
                 direction = 'up';
                 STATE_RECORD(dayIndex) = 1;
-            elseif  length( find ( Compare_short_long(dayIndex - OBSERVE_TIME + 1 : dayIndex) ==0 ) ) >= TREND_JUDGE  %进入下降趋势
+                %重置振荡止盈中的变量
+                waitFlag = 0;
+                waitProfitRate = 0;
+                breakFlag = 0;
+                incrementValue = 0;
+                MINIMUM_IN_RECENT = 0;
+            elseif  E_value(dayIndex) <  -PREMISE_BOUND   %进入下降趋势
                 if ~strcmp(state, 'trend') || ~strcmp(direction, 'down') %这一天恰好进入下降趋势
                     volIndex = volIndex + 1;
                     VOL_START_DAY(volIndex) = dayIndex - TREND_JUDGE + 1;
@@ -104,6 +120,12 @@ end
                 state = 'trend';
                 direction = 'down';
                 STATE_RECORD(dayIndex) = 1;
+                %重置振荡止盈中的变量
+                waitFlag = 0;
+                waitProfitRate = 0;
+                breakFlag = 0;
+                incrementValue = 0;
+                MINIMUM_IN_RECENT = 0;
             else  %振荡趋势，在振荡趋势中暂时不处理成交量
                 state = 'oscillation';
                 STATE_RECORD(dayIndex) = 0;
@@ -112,38 +134,42 @@ end
         
         %% 执行核心策略Strategy, shift表示返回的今天的开平仓情况
         if dayIndex >= LONG_TIME + OBSERVE_TIME
-            shiftVolume = 0;
-%             shiftVolume = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
+            SHIFT_VOL(dayIndex) = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
             
             if strcmp(state,'trend') == 1  %之前判断此时为趋势行情
-                shiftPrice = strategy_trend(shift, dayIndex, status, historyClose, direction, Compare_short_long, MA_SHORT, MA_LONG);
+                SHIFT_PRICE(dayIndex) = strategy_trend(dayIndex, status, historyClose, direction,...
+                    Compare_short_long, MA_SHORT, MA_LONG);
             elseif  strcmp(state,'oscillation') == 1   %振荡行情
-                shiftPrice = strategy_oscil(shift, dayIndex, status, historyClose, MA_SHORT, MA_LONG);
+                [SHIFT_PRICE(dayIndex), waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
+                    = strategy_oscil(dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
+                    waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT );
             end
             
-            if shiftPrice + shiftVolume >= 1
+            if SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex)  >= 1
                 shift = 1;
-            elseif shiftPrice + shiftVolume <= -1
+            elseif SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex) <= -1
                 shift = -1;
-            else
+            else %如果成交量发出的信号与价格发出的信号相反，则不做动作
                 shift = 0;
             end
+            
             % 止损
-            %         if dayIndex <= 30
-            %             maxNet = max(NET);
-            %         else
-            %             maxNet = max(NET(dayIndex - 29:dayIndex-1) );
-            %         end
-            %         if NET(dayIndex-1) <= 0.95 * maxNet
-            %             shift = -1;
-            %         end
+            if dayIndex <= STOP_LOSS_DAY
+                maxNet = max(NET);
+            else
+                maxNet = max(NET(dayIndex - STOP_LOSS_DAY + 1 :dayIndex-1) );
+            end
+            if NET(dayIndex-1) <= STOP_LOSS_PROP * maxNet
+                shift = -1;
+            end
             %以上为止损
+            
         end
         
         %% 每天的后续计算
         %将今日开平仓情况存储于Flagbuy，以便结果的计算
         % Flagbuy最终存的将是每天的开仓情况，1代表开仓
-        if dayIndex == 1
+        if dayIndex == 1  %第一天不交易
             FLAGBUY(dayIndex) = 0;
         else
             if shift == 0  %持仓情况与前一天相同，status不做改变，
@@ -164,15 +190,12 @@ end
             NET_OUT(1) = 1;
             NET_IN(1) = 0;
             HOLD(1)=0;
-            RISK(1)=0;
             %第一天开仓时的处理
             if FLAGBUY(dayIndex) == 1
                 NET_IN(1)  = IN_PERCENT * NET(1) *(1-BUY_COST); %一半的净值参与交易(这里手续费在哪里扣，到时候再看看要不要改)
                 NET_OUT(1) = (1-IN_PERCENT) * NET(1);
-                %PCYK(1) = 1 - BUY_COST;
                 NET(1)  = NET_OUT(1) + NET_IN(1);
                 HOLD(1) = NET_IN(1) / historyClose(1); %每次只用净值的50%去进行交易
-                RISK(1) =BUY_COST;
             end
             dayIndex = dayIndex + 1;
             continue;
@@ -185,18 +208,15 @@ end
         NET(dayIndex) = NET_OUT(dayIndex) + NET_IN(dayIndex);
         %这里要确保第一天是有价格的, 净值等于没参与交易的NET_OUT（再一次买入后是暂时固定的）与参与交易的NET_IN（持仓时会不断变化）之和
         
-        %PCYK(dayIndex) = PCYK(dayIndex-1);
         HOLD(dayIndex) = HOLD(dayIndex-1);
         
         
         %若当天发出开仓信号
         if FLAGBUY(dayIndex) == 1 && FLAGBUY(dayIndex-1) == 0
-            %PCYK(dayIndex) = PCYK(dayIndex) * (1-BUY_COST);
             NET_IN(dayIndex) = IN_PERCENT * NET(dayIndex) * (1-BUY_COST);
             NET_OUT(dayIndex) = (1-IN_PERCENT) * NET(dayIndex);
             NET(dayIndex) = NET_IN(dayIndex) + NET_OUT(dayIndex);
             HOLD(dayIndex) = NET_IN(dayIndex) / historyClose(dayIndex);
-            RISK(dayIndex) = max(NET)-NET(dayIndex); %这里用max函数欠妥，可以记录到当前为止的最高净值
             dayIndex = dayIndex + 1;
             continue;
         end
@@ -212,7 +232,6 @@ end
                 HOLD(dayIndex)=0;
             end
         end
-        RISK(dayIndex) = max(NET)-NET(dayIndex); %这里用max函数欠妥，可以记录到当前为止的最高净值
         dayIndex = dayIndex + 1;
     end
 
