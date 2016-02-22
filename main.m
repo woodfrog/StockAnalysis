@@ -7,46 +7,67 @@ format compact
 %%
 load('FQDATA.mat');
 parameter; % 导入参数
+STOCK_NUM = [600409,600470,600486,600048,000031,000038,...
+    000402,000950,000420,000949,600889,000816,000809,000949,600573,...
+   000596,600307,600015,600000,601288,000928,000065,000056,600658,...
+   600570,000682,600056,600079,600216,002423,000819,002182];
+% STOCK_NUM = [600519,600999,	600048,	601688,	600837,	600111,	600036,	600547,	600383,	600887,	601006,	600030,	600000,	600015,	601901,	600585,	600089,	601169,	601166,	600104,	600637,	601328,	600016,	601398,	600406,	601818,	601288,	600196,	601088,	600031,	601318,	601336,	600050,	600028,	601857,	600703,	601118,	601117,	601601,	600018,	600332,	601989,	601628,	601668,	600256,	600518,	600010,	600832,	601299,	601766,	];
+% STOCK_NUM = StockCodeDouble;
 
 SUM_NET = 0;
 SUM_RISK = 0;
 SUM_PRICE = 0;
 NO_INFORMATION = 0;
 
+beginCount = find(Date>=BEGIN_DATE,1,'first');  %大于起始日期的第一个交易日
+if isempty(beginCount) || BEGIN_DATE<20110104
+    fprintf('开始日期不在数据范围！');
+    return;
+end
+
+endCount = find(Date<=END_DATE,1,'last'); %小于截止日期的第一个交易日
+if isempty(endCount) || END_DATE>20151127
+    fprintf('结束日期不在数据范围！');
+    return;
+end
+
+
 for codeIndex = 1 : length(STOCK_NUM)
     
     stockCount=find(StockCodeDouble==STOCK_NUM(codeIndex));
+  
+    historyFlagtrade = Flagtrade(beginCount : endCount, stockCount );
+    allClose         = Close( beginCount : endCount  , stockCount );
+    allVol           = Volume( beginCount : endCount  , stockCount );
+    historyClose     = allClose( historyFlagtrade==1 );
+    historyVol       = allVol(historyFlagtrade==1 );
+    
     if length(stockCount) == 0
         fprintf('No Data for stock: %06.0f\n', STOCK_NUM(codeIndex));
         NO_INFORMATION = NO_INFORMATION + 1;
         continue; %直接跳过余下操作
     end
     
-    %%对参数中的起止日期以及股票代号进行检验
-    if BEGIN_DATE>=END_DATE
-        fprintf('开始日期必须小于结束日期！');
-        return;
+    if length(historyClose) == 0
+        fprintf('Stock%06.0f has quit\n ', STOCK_NUM(codeIndex));
+        NO_INFORMATION = NO_INFORMATION + 1;
+        continue;
     end
     
-    beginCount = find(Date>=BEGIN_DATE,1,'first');  %大于起始日期的第一个交易日
-    if isempty(beginCount) || BEGIN_DATE<20110104
-        fprintf('开始日期不在数据范围！');
-        return;
+    if length(historyClose) < 300
+        fprintf('Stock%06.0f do not provide enough data for the strategy\n ', STOCK_NUM(codeIndex));
+        NO_INFORMATION = NO_INFORMATION + 1;
+        continue;
     end
     
-    endCount = find(Date<=END_DATE,1,'last'); %小于截止日期的第一个交易日
-    if isempty(endCount) || END_DATE>20151127
-        fprintf('结束日期不在数据范围！');
-        return;
-    end
+    
     %%
-    FLAGBUY =  zeros(endCount-beginCount+1,1);%记录开平仓情况
-    %PCYK    =  zeros(endCount-beginCount+1,1);%记录平仓盈亏
-    HOLD    =  zeros(endCount-beginCount+1,1);%记录持仓情况
-    NET_OUT = zeros(endCount-beginCount+1,1);
-    NET_IN  = zeros(endCount-beginCount+1,1);
-    SHIFT_PRICE = zeros(endCount-beginCount+1,1);
-    SHIFT_VOL  = zeros(endCount-beginCount+1,1);
+    FLAGBUY =  zeros(length(historyClose),1);%记录开平仓情况
+    HOLD    =  zeros(length(historyClose),1);%记录持仓情况
+    NET_OUT = zeros(length(historyClose),1);
+    NET_IN  = zeros(length(historyClose),1);
+    SHIFT_PRICE = zeros(length(historyClose),1);
+    SHIFT_VOL  = zeros(length(historyClose),1);
     status  =  '空仓'; %初始状态为空仓
     shift   = 0;       % 0表示空仓，1表示持仓
     shiftPrice = 0;    %价格策略发出的信号
@@ -64,27 +85,18 @@ for codeIndex = 1 : length(STOCK_NUM)
     incrementValue = 0;
     MINIMUM_IN_RECENT = 0;
     
-    Compare_short_long = zeros(endCount-beginCount+1,1);%记录两条MA的高低
-    E_value = zeros(endCount-beginCount+1,1); %记录每天的E值，用于判断该天处于振荡还是趋势中
-    STATE_RECORD = zeros(endCount-beginCount+1,1); %记录每天是处在趋势行情中还是振荡行情中
-    VOL_AVR = zeros(endCount-beginCount+1,1); %记录每个趋势中的平均交易量
-    VOL_START_DAY = zeros(endCount-beginCount+1,1);
-    %%
+    Compare_short_long = zeros(length(historyClose),1);%记录两条MA的高低
+    E_value = zeros(length(historyClose),1); %记录每天的E值，用于判断该天处于振荡还是趋势中
+    STATE_RECORD = zeros(length(historyClose),1); %记录每天是处在趋势行情中还是振荡行情中
+    VOL_AVR = zeros(length(historyClose),1); %记录每个趋势中的平均交易量
+    VOL_START_DAY = zeros(length(historyClose),1);
+    VOL_RECORD   = zeros(length(historyClose),1);
+    MA_SHORT = MA(historyClose,SHORT_TIME);
+    MA_LONG = MA(historyClose, LONG_TIME);
     
-    for i = beginCount:endCount %循环每一天
-        if Flagtrade(i, stockCount) == 0
-            continue;   %如果这一天是没有交易的，那么直接跳过
-        end
+    for dayIndex = 1 : length(historyClose) %循环每一天
         %% 将到当天位置的数据加入到可以获得的数据中，策略中只能用history部分数据，以防止前视偏差
-        historyClose(dayIndex)     = Close(i, stockCount );
-        historyVol(dayIndex)       = Volume(i, stockCount); %成交量
         %%计算相应的长、短均线
-        if  dayIndex >= SHORT_TIME %计算短均线
-            MA_SHORT(dayIndex) = MA( SHORT_TIME,historyClose);
-        end
-        if dayIndex >= LONG_TIME %计算长均线
-            MA_LONG(dayIndex) = MA( LONG_TIME, historyClose);
-        end
         
         %% 对行情总体情况的判断，趋势or振荡
         % 并为策略的执行准备数据
@@ -112,20 +124,24 @@ for codeIndex = 1 : length(STOCK_NUM)
                     volIndex = volIndex + 1;
                     state_vol = 1;
                     VOL_START_DAY(volIndex) = dayIndex;
+                    VOL_RECORD(dayIndex) = volIndex;
                     VOL_AVR(volIndex) = historyVol(dayIndex);
                 else
                     volIndex = volIndex + 1;
                     state_vol = -1;
                     VOL_START_DAY(volIndex) = dayIndex;
+                    VOL_RECORD(dayIndex) = volIndex;
                     VOL_AVR(volIndex) = historyVol(dayIndex);
                 end
             elseif state_vol == 1 %之前处在价格上升阶段
                 if historyClose(dayIndex) > historyClose(dayIndex-1) %仍处在价格上升阶段中
                     VOL_AVR(volIndex) = AVR(dayIndex - VOL_START_DAY(volIndex)+1, historyVol);
+                    VOL_RECORD(dayIndex) = volIndex;
                 else
                     volIndex = volIndex + 1;
                     state_vol = -1;
                     VOL_START_DAY(volIndex) = dayIndex;
+                    VOL_RECORD(dayIndex) = volIndex;
                     VOL_AVR(volIndex) = historyVol(dayIndex);
                 end
             else %之前处在价格下降的阶段
@@ -133,9 +149,11 @@ for codeIndex = 1 : length(STOCK_NUM)
                     volIndex = volIndex + 1;
                     state_vol = 1;
                     VOL_START_DAY(volIndex) = dayIndex;
+                    VOL_RECORD(dayIndex) = volIndex;
                     VOL_AVR(volIndex) = historyVol(dayIndex);
                 else
                     VOL_AVR(volIndex) = AVR(dayIndex - VOL_START_DAY(volIndex)+1, historyVol);
+                    VOL_RECORD(dayIndex) = volIndex;
                 end
             end
             
@@ -152,7 +170,7 @@ for codeIndex = 1 : length(STOCK_NUM)
             elseif  E_value(dayIndex) <  -PREMISE_BOUND   %进入下降趋势
                 state = 'trend';
                 direction = 'down';
-                STATE_RECORD(dayIndex) = 1;
+                STATE_RECORD(dayIndex) = -1;
                 %重置振荡止盈中的变量
                 waitFlag = 0;
                 waitProfitRate = 0;
@@ -167,18 +185,18 @@ for codeIndex = 1 : length(STOCK_NUM)
         
         %% 执行核心策略Strategy, shift表示返回的今天的开平仓情况
         if dayIndex >= LONG_TIME + PREMISE_DAY
-            SHIFT_VOL(dayIndex) = strategy_volume(dayIndex, volIndex, VOL_AVR, historyClose);
+            SHIFT_VOL(dayIndex) = strategy_volume(dayIndex, volIndex, VOL_AVR, VOL_RECORD, VOL_START_DAY, historyClose(1:dayIndex));
             
             if strcmp(state,'trend') == 1  %之前判断此时为趋势行情
-                SHIFT_PRICE(dayIndex) = strategy_trend(dayIndex, status, historyClose, direction,...
-                    Compare_short_long, MA_SHORT, MA_LONG);
+                SHIFT_PRICE(dayIndex) = strategy_trend(dayIndex, status, historyClose(1:dayIndex), direction,...
+                    Compare_short_long, MA_SHORT(1:dayIndex), MA_LONG(1:dayIndex));
             elseif  strcmp(state,'oscillation') == 1   %振荡行情
                 [SHIFT_PRICE(dayIndex), waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
-                    = strategy_oscil(dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
+                    = strategy_oscil(dayIndex, status, historyClose(1:dayIndex), MA_SHORT(1:dayIndex), MA_LONG(1:dayIndex), STATE_RECORD, ...
                     waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT );
             end
             
-            if SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex)  >= 1
+            if SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex) >= 1
                 shift = 1;
             elseif SHIFT_PRICE(dayIndex) + SHIFT_VOL(dayIndex) <= -1
                 shift = -1;
@@ -187,6 +205,15 @@ for codeIndex = 1 : length(STOCK_NUM)
             end
             
             % 止损
+%             if mod(dayIndex,365) == 0
+%                 priceRatio =  historyClose(dayIndex-1) / historyClose(1);
+%                 netRatio   =  NET(dayIndex-1) / NET(1);
+%                 if   priceRatio >  1.4 * netRatio
+%                     STOP_LOSS_PROP = 0.8;
+%                 else
+%                     STOP_LOSS_PROP = 0.9;
+%                 end
+%             end
             if dayIndex <= STOP_LOSS_DAY
                 maxNet = max(NET);
             else
@@ -216,7 +243,6 @@ for codeIndex = 1 : length(STOCK_NUM)
             end
         end
         
-        %%以下计算平仓盈亏、净值、持仓情况、回撤等指标
         %当第一天的时候，对各指标初始化
         if dayIndex==1
             NET(1)=1;
@@ -230,7 +256,6 @@ for codeIndex = 1 : length(STOCK_NUM)
                 NET(1)  = NET_OUT(1) + NET_IN(1);
                 HOLD(1) = NET_IN(1) / historyClose(1); %每次只用净值的50%去进行交易
             end
-            dayIndex = dayIndex + 1;
             continue;
         end
         
@@ -250,7 +275,6 @@ for codeIndex = 1 : length(STOCK_NUM)
             NET_OUT(dayIndex) = (1-IN_PERCENT) * NET(dayIndex);
             NET(dayIndex) = NET_IN(dayIndex) + NET_OUT(dayIndex);
             HOLD(dayIndex) = NET_IN(dayIndex) / historyClose(dayIndex);
-            dayIndex = dayIndex + 1;
             continue;
         end
         
@@ -265,21 +289,15 @@ for codeIndex = 1 : length(STOCK_NUM)
                 HOLD(dayIndex)=0;
             end
         end
-        dayIndex = dayIndex + 1;
     end
-    if dayIndex == 1 %若设定的期间内相应股票还未上市，是无法回测的，此处处理这一情况
-        fprintf('Stock%06.0f did not go public during the time in configuration\n ', STOCK_NUM(codeIndex));
-        NO_INFORMATION = NO_INFORMATION + 1;
-        continue;
-    end
-    FINAL_NET = NET(dayIndex-1);
+    FINAL_NET = NET(dayIndex);
     SUM_NET = SUM_NET + FINAL_NET;
     MAX_RISK = max_risk(NET);
     SUM_RISK = SUM_RISK + MAX_RISK;
-    PRICE_RATIO = historyClose(dayIndex-1)/historyClose(1);
+    PRICE_RATIO = historyClose(dayIndex)/historyClose(1);
     SUM_PRICE = SUM_PRICE + PRICE_RATIO;
      fprintf( 'No.%d: %06.0f  NET: %f RISK: %f  PRICE: %f  DAYS: %.0f\n',codeIndex, STOCK_NUM(codeIndex), FINAL_NET, MAX_RISK, ...
-         PRICE_RATIO, dayIndex-1 );
+         PRICE_RATIO, dayIndex );
     clear NET historyClose historyVol;
 end
 
@@ -289,6 +307,7 @@ PRICE_AVR = SUM_PRICE / (length(STOCK_NUM) - NO_INFORMATION);
 fprintf('平均NET： %f\n', NET_AVR);
 fprintf('平均RISK： %f\n', RISK_AVR);
 fprintf('平均PRICE： %f\n', PRICE_AVR);
+
 %% 画图
 %
 % scrsz = get(0,'ScreenSize');

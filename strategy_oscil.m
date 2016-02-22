@@ -8,9 +8,9 @@ function [shift, waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN
 
 %输入参数
 parameter;
-
+RECENT_DAY = 20; %振荡策略止盈中取极小值的范围
 %% 判断部分
-if dayIndex >= SHORT_TIME + OBSERVE_TIME && dayIndex >= LONG_TIME + OBSERVE_TIME 
+if dayIndex >= SHORT_TIME + PREMISE_DAY && dayIndex >= LONG_TIME + PREMISE_DAY 
     
     if MA_SHORT(dayIndex) == 0 || MA_SHORT(dayIndex-1) == 0 || MA_LONG(dayIndex) == 0 ||MA_LONG(dayIndex-1) == 0
         shift = 0;
