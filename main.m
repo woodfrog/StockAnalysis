@@ -7,12 +7,9 @@ format compact
 %%
 load('FQDATA.mat');
 parameter; % 导入参数
-STOCK_NUM = [600409,600470,600486,600048,000031,000038,...
-    000402,000950,000420,000949,600889,000816,000809,000949,600573,...
-   000596,600307,600015,600000,601288,000928,000065,000056,600658,...
-   600570,000682,600056,600079,600216,002423,000819,002182];
-% STOCK_NUM = [600519,600999,	600048,	601688,	600837,	600111,	600036,	600547,	600383,	600887,	601006,	600030,	600000,	600015,	601901,	600585,	600089,	601169,	601166,	600104,	600637,	601328,	600016,	601398,	600406,	601818,	601288,	600196,	601088,	600031,	601318,	601336,	600050,	600028,	601857,	600703,	601118,	601117,	601601,	600018,	600332,	601989,	601628,	601668,	600256,	600518,	600010,	600832,	601299,	601766,	];
-% STOCK_NUM = StockCodeDouble;
+
+% 调用选股函数
+%  STOCK_NUM = choose_stock(CHOOSE_BEGIN_DATE, CHOOSE_END_DATE, Date, Close, StockCodeDouble);
 
 SUM_NET = 0;
 SUM_RISK = 0;
@@ -89,15 +86,13 @@ for codeIndex = 1 : length(STOCK_NUM)
     E_value = zeros(length(historyClose),1); %记录每天的E值，用于判断该天处于振荡还是趋势中
     STATE_RECORD = zeros(length(historyClose),1); %记录每天是处在趋势行情中还是振荡行情中
     VOL_AVR = zeros(length(historyClose),1); %记录每个趋势中的平均交易量
-    VOL_START_DAY = zeros(length(historyClose),1);
-    VOL_RECORD   = zeros(length(historyClose),1);
-    MA_SHORT = MA(historyClose,SHORT_TIME);
+    VOL_START_DAY = zeros(length(historyClose),1); %记录每个阶段开始的天序号（成交量策略中）
+    VOL_RECORD   = zeros(length(historyClose),1); %记录每天所对应的阶段序号（成交量策略中）
+    MA_SHORT = MA(historyClose,SHORT_TIME); %计算均线系统所需的数据
     MA_LONG = MA(historyClose, LONG_TIME);
     
     for dayIndex = 1 : length(historyClose) %循环每一天
-        %% 将到当天位置的数据加入到可以获得的数据中，策略中只能用history部分数据，以防止前视偏差
-        %%计算相应的长、短均线
-        
+              
         %% 对行情总体情况的判断，趋势or振荡
         % 并为策略的执行准备数据
         if dayIndex >= LONG_TIME
@@ -205,15 +200,17 @@ for codeIndex = 1 : length(STOCK_NUM)
             end
             
             % 止损
+%           %可能有用的动态设置止损比例            
 %             if mod(dayIndex,365) == 0
-%                 priceRatio =  historyClose(dayIndex-1) / historyClose(1);
-%                 netRatio   =  NET(dayIndex-1) / NET(1);
-%                 if   priceRatio >  1.4 * netRatio
-%                     STOP_LOSS_PROP = 0.8;
-%                 else
+%                 priceRatio =  max( historyClose(1:dayIndex)) /min( historyClose(1:dayIndex));
+% %          
+%                 if   priceRatio >  1.5 
 %                     STOP_LOSS_PROP = 0.9;
+%                 else
+%                     STOP_LOSS_PROP = 0.92;
 %                 end
 %             end
+
             if dayIndex <= STOP_LOSS_DAY
                 maxNet = max(NET);
             else
@@ -308,7 +305,7 @@ fprintf('平均NET： %f\n', NET_AVR);
 fprintf('平均RISK： %f\n', RISK_AVR);
 fprintf('平均PRICE： %f\n', PRICE_AVR);
 
-%% 画图
+%% 画图部分
 %
 % scrsz = get(0,'ScreenSize');
 % figure('Position',[scrsz(3)*1/4 scrsz(4)*1/6 scrsz(3)*4/5 scrsz(4)]*3/4);

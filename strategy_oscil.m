@@ -1,6 +1,6 @@
 function [shift, waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT  ] ...
-        = strategy_oscil(dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
-        waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT )
+    = strategy_oscil (dayIndex, status, historyClose, MA_SHORT, MA_LONG, STATE_RECORD, ...
+    waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN_RECENT )
 
 % 若发出买入信号，则shift = 1，
 % 若发出卖出信号，则shift = -1,
@@ -10,18 +10,18 @@ function [shift, waitFlag, waitProfitRate, breakFlag, incrementValue, MINIMUM_IN
 parameter;
 RECENT_DAY = 20; %振荡策略止盈中取极小值的范围
 %% 判断部分
-if dayIndex >= SHORT_TIME + PREMISE_DAY && dayIndex >= LONG_TIME + PREMISE_DAY 
+if dayIndex >= SHORT_TIME + PREMISE_DAY && dayIndex >= LONG_TIME + PREMISE_DAY
     
     if MA_SHORT(dayIndex) == 0 || MA_SHORT(dayIndex-1) == 0 || MA_LONG(dayIndex) == 0 ||MA_LONG(dayIndex-1) == 0
         shift = 0;
         return;
     end
     
-    if waitFlag == 0  % 没有处在止盈的观望状态中   
+    if waitFlag == 0  % 没有处在止盈的观望状态中
         switch status
             case '空仓'
                 if MA_SHORT(dayIndex) < MA_LONG(dayIndex) && MA_SHORT(dayIndex-1) >= MA_LONG(dayIndex-1)...
-                        && length( find ( STATE_RECORD(dayIndex - PREMISE_DAY + 1 : dayIndex) == 0 ) ) >= PREMISE_DAY/2 
+                        && length( find ( STATE_RECORD(dayIndex - PREMISE_DAY + 1 : dayIndex) == 0 ) ) >= PREMISE_DAY/2
                     %短期线从上往下突破长期线，说明近期价格下降
                     shift = 1;  %认为大盘振荡，此时买入
                 else
@@ -45,7 +45,7 @@ if dayIndex >= SHORT_TIME + PREMISE_DAY && dayIndex >= LONG_TIME + PREMISE_DAY
             if temp >= waitProfitRate
                 waitProfitRate = waitProfitRate + incrementValue;
                 breakFlag = 1;
-                shift = 0; 
+                shift = 0;
             elseif MA_SHORT(dayIndex) < MA_LONG(dayIndex) && MA_SHORT(dayIndex-1) >= MA_LONG(dayIndex-1)
                 shift = -1; %发出卖出信号,并还原止盈用的信息
                 waitFlag = 0;
